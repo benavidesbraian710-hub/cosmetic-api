@@ -219,3 +219,47 @@ Kimi Coding Plan API 当前不可用。改用 OpenClaw 已配置的 MiniMax prov
 - cosmetic-api 仓库无 remote，本地 commit 无云端备份
 - cosmetic-api 4 文件 modified + typechange + 10+ untracked 噪音未清理
 - 10-08 那 4 个数据量异常文件没看到单独处理记录
+
+## 2026-10-19 14:00 Kimi K3 统一 LLM + 新建 GitHub 仓 + 清理
+
+### 决策
+- **让 Kimi K3 作为 LLM 精排+意图解析统一客户端**，拆除 minimax 包装
+- 理由：零维护优先，单一 LLM provider 链路更短，一个 API key 一份维护成本
+- **新建 GitHub 仓 `benavidesbraian710-hub/cosmetic-api`** 给后端代码做云端备份（仓库历史无 remote）
+
+### 代码变更（commit `daf6136`）
+- main.py:
+  - 移除 `MINIMAX_API_KEY` / `MINIMAX_API_URL` 常量
+  - 移除整个 `call_minimax_api()` 函数（含 fallback 逻辑）
+  - `llm_rerank_batch()` 改用 `call_kimi_api('kimi-k3', timeout=120)`
+- plist `com.cosmetic.api.plist`（仓库外）:
+  - 删除 `MINIMAX_API_KEY` env（值为占位符 `TBD_FILL_FROM_NICK`）
+  - 保留 `COSMETIC_DB_PATH` + `KIMI_API_KEY`
+
+### 清理（commit `daf6136`）
+- 新建 `.gitignore`: Python/日志/db/备份/工具缓存/编辑器 全覆盖
+- 解除跟踪:
+  - `cosmetic_articles.db` (24MB 旧库，已废，deploy 仓是真源)
+  - `logs/api.error.log`, `logs/api.log` (运行时日志)
+- 删除 `cosmetic_articles.db.bak.20261019_100530` (10-19 临时备份)
+- `requirements.txt`: 显式声明 `uvicorn[standard]>=0.24.0`
+
+### GitHub 推送
+- 用 GitHub PAT (`/Users/yuming.chen/.openclaw/credentials/github_pat`) 通过 API 创建新仓
+- 仓名：`cosmetic-api`（公开，匹配 cosmetic-articles-search/cosmetic-preview）
+- 添加 SSH remote (`git@github.com:...`)，HTTPS 443 当前被劫持，SSH 22 通
+- 推送 4 个本地 commit（origin/main = `daf6136`）:
+  - `daf6136` Kimi 单一 + .gitignore + 解除跟踪
+  - `704a38b` 10-19 早间 CHANGELOG (FTS5 重建 + LLM fallback)
+  - `db9b5f9` Kimi fallback 临时方案
+  - `8174c18` (10-17 历史) LLM 精排切 minimax
+
+### 验证
+- uvicorn 重启: env = `COSMETIC_DB_PATH` + `KIMI_API_KEY`（无 MINIMAX）
+- `/api/search "抗衰老"` → 4 篇（Kimi 单独跑通）
+- 仓 URL: https://github.com/benavidesbraian710-hub/cosmetic-api
+- 远程同步: origin/main = `daf6136` ✓
+
+### 关联
+- 10-19 早间: 4 步方案 B 修复 API 智能找文（软链化 + FTS5 重建 + LLM fallback + export_data.py 治理），详见 CHANGELOG 10-19 早间条目
+- 配套变更: `cosmetic-articles-search` 仓 commit `9c76f05`（export_data.py 治理 + CHANGELOG）已推 GitHub
