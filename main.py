@@ -90,8 +90,10 @@ def call_minimax_api(prompt: str, model: str = 'MiniMax-M3', timeout: int = 120)
     """调用 MiniMax API（Anthropic 格式，OpenClaw provider 同款端点）
     用于 LLM 精排 - 10-17 从 Kimi 切换到 MiniMax"""
     if not MINIMAX_API_KEY:
-        print("MINIMAX_API_KEY 未配置")
-        return None
+        # 10-19 fallback: plist 中 MINIMAX_API_KEY 是 TBD_FILL_FROM_NICK 未填
+        # 自动回退到 Kimi K3 (KIMI_API_KEY 已在 plist 配置可用)
+        print("MINIMAX_API_KEY 未配置, fallback to Kimi K3 (rerank)")
+        return call_kimi_api(prompt, model='kimi-k3', timeout=timeout)
 
     headers = {
         'x-api-key': MINIMAX_API_KEY,
