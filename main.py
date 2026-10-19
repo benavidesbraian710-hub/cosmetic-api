@@ -10,13 +10,9 @@ import requests
 from datetime import datetime, timedelta
 import os
 
-# Kimi API 配置（OpenClaw 同款端点，主要用于意图解析）
+# Kimi API 配置（OpenClaw 同款端点，10-19 起 Kimi K3 作为精排+意图解析统一 LLM）
 KIMI_API_KEY = os.environ.get('KIMI_API_KEY', '')
 KIMI_API_URL = 'https://api.kimi.com/coding/v1/messages'  # Anthropic 格式
-
-# MiniMax API 配置（用于 LLM 精排 - 10-17 切换）
-MINIMAX_API_KEY = os.environ.get('MINIMAX_API_KEY', '')
-MINIMAX_API_URL = 'https://api.minimaxi.com/anthropic/v1/messages'  # Anthropic 格式
 
 app = FastAPI(title="化妆品文章智能检索API", version="3.0.0")
 
@@ -85,58 +81,6 @@ def parse_time_filter(query: str) -> Optional[str]:
     return None
 
 # ============ 步骤1：LLM意图解析（锚点+修饰词） ============
-
-def call_minimax_api(prompt: str, model: str = 'MiniMax-M3', timeout: int = 120) -> Optional[str]:
-    """调用 MiniMax API（Anthropic 格式，OpenClaw provider 同款端点）
-    用于 LLM 精排 - 10-17 从 Kimi 切换到 MiniMax"""
-    if not MINIMAX_API_KEY:
-        # 10-19 fallback: plist 中 MINIMAX_API_KEY 是 TBD_FILL_FROM_NICK 未填
-        # 自动回退到 Kimi K3 (KIMI_API_KEY 已在 plist 配置可用)
-        print("MINIMAX_API_KEY 未配置, fallback to Kimi K3 (rerank)")
-        return call_kimi_api(prompt, model='kimi-k3', timeout=timeout)
-
-    headers = {
-        'x-api-key': MINIMAX_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json'
-    }
-
-    payload = {
-        'model': model,
-        'messages': [{'role': 'user', 'content': prompt}],
-        'max_tokens': 4096
-    }
-
-    try:
-        response = requests.post(MINIMAX_API_URL, headers=headers, json=payload, timeout=timeout)
-        response.raise_for_status()
-        result = response.json()
-        print(f"MiniMax API 返回结构: {list(result.keys())}")
-        # Anthropic 格式: content 是 list, 含 text/thinking
-        if 'content' in result:
-            content = result['content']
-            if isinstance(content, list) and len(content) > 0:
-                for item in content:
-                    if item.get('type') == 'text':
-                        return item.get('text', '')
-                for item in content:
-                    if item.get('type') == 'thinking':
-                        return item.get('thinking', '')
-                first = content[0]
-                return first.get('text', '') or first.get('thinking', '') or str(first)
-            elif isinstance(content, str):
-                return content
-        elif 'choices' in result:
-            return result['choices'][0]['message']['content']
-        elif 'text' in result:
-            return result['text']
-        else:
-            print(f"未知返回格式: {result}")
-            return str(result)
-    except Exception as e:
-        print(f"MiniMax API 调用失败: {e}")
-        return None
-
 
 def call_kimi_api(prompt: str, model: str = 'kimi-k3', timeout: int = 60) -> Optional[str]:
     """直接调用 Kimi API（Anthropic 格式，与 OpenClaw 一致）"""
@@ -457,7 +401,7 @@ def llm_rerank_batch(query: str, articles: List[dict], intent: Dict, batch_num: 
 - 宁可少返回，也不要返回不相关的"""
 
     try:
-        text = call_minimax_api(prompt, model='MiniMax-M3', timeout=120)
+        text = call_kimi_api(prompt, model='kimi-k3', timeout=120)
         if not text:
             return []
         

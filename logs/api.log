@@ -1,9 +1,0 @@
-INFO:     127.0.0.1:52351 - "GET /api/health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52573 - "GET /api/health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52818 - "GET /api/health HTTP/1.1" 200 OK
-INFO:     103.62.49.74:0 - "POST /api/search HTTP/1.1" 200 OK
-INFO:     103.62.49.74:0 - "POST /api/search HTTP/1.1" 200 OK
-INFO:     2602:feda:f39b:8553:6a99:a3b4:d45b:d39d:0 - "OPTIONS /api/search HTTP/1.1" 200 OK
-INFO:     2602:feda:f39b:8553:6a99:a3b4:d45b:d39d:0 - "OPTIONS /api/search HTTP/1.1" 200 OK
-INFO:     2602:feda:f39b:8553:6a99:a3b4:d45b:d39d:0 - "POST /api/search HTTP/1.1" 200 OK
-INFO:     2602:feda:f39b:8553:6a99:a3b4:d45b:d39d:0 - "POST /api/search HTTP/1.1" 200 OK
