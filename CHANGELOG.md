@@ -149,3 +149,73 @@ Kimi Coding Plan API 当前不可用。改用 OpenClaw 已配置的 MiniMax prov
 - [ ] 重启 uvicorn 测试 `/api/search` 完整流程
 - [ ] 验证精排结果质量（对比 Kimi 时代）
 
+
+## 2026-10-19 API 智能找文全面恢复 + FTS5 重建 + LLM fallback
+
+### 问题现象
+- /api/search 全部返回 0 结果（POST 抗衰老/化妆品/美白 都 0）
+- /api/stats 和 /api/health 正常 200
+- API 日志显示锚点检索召回 100 篇，但 LLM 精排阶段全部失败，输出 0 篇
+
+### 根因排查过程
+- Step 1: 验证 db 状态 → cosmetic-api/cosmetic_articles.db 仍是 8-24 旧版（24MB, db-shm/wal 是 10-08），deploy 仓 db 是 10-17 当前版（35MB, 2,486 篇）
+- Step 2: 软链化 cosmetic-api/cosmetic_articles.db → deploy 仓 db（数据真源统一）
+- Step 3: 杀老 uvicorn PID 1921，launchd plist 自动拉起新进程（带 COSMETIC_DB_PATH 环境变量）
+- Step 4: /api/stats 验证 → 2,486 articles OK；/api/health OK
+- Step 5: /api/search 仍 0 → 查 API 日志发现 `MINIMAX_API_KEY 未配置`（重复 9 次）
+- Step 6: 检查 plist `com.cosmetic.api.plist` → `MINIMAX_API_KEY` 值为 `"TBD_FILL_FROM_NICK"` 占位符未填
+- Step 7: KIMI_API_KEY 真实有效（`sk-kim…voOw`），Kimi K3 可用
+- Step 8: FTS5 验证 → articles_fts 表族存在但只 88 行，触发器 0 个（之前误建在 search-bot 目录的 Jun 18 老软链，不是 deploy db）
+
+### 真正根因（两层叠加）
+1. **FTS5 索引缺失**: deploy db 上 articles_fts 不存在或严重不完整，FTS5 MATCH 召回为 0
+2. **LLM 精排失败**: plist 中 `MINIMAX_API_KEY` 是占位符，10-17 切到 MiniMax 时没填真 key
+3. 两者叠加 → 任意单修都救不回 0 结果，必须双修
+
+### 修复措施（4 步方案 B 全部完成）
+
+**Step 1 - 软链化 + 备份**:
+- 备份旧 db: `cp cosmetic_articles.db cosmetic_articles.db.bak.20261019_100530`（24MB）
+- 清理旧 shm/wal: `rm -f cosmetic_articles.db-shm cosmetic_articles.db-wal`
+- 软链: `ln -sf /Users/yuming.chen/.openclaw/workspace/cosmetic-deploy/cosmetic_articles.db cosmetic_articles.db`
+- 验证: Python sqlite3 读软链 → 2,486 articles OK
+
+**Step 2 - 重启 uvicorn**:
+- 杀老 PID 1921（跑了 7h48m）
+- launchd plist 自动拉起新进程（PID 56051 → 重启后 59550）
+- launchd plist 已配 `COSMETIC_DB_PATH=/Users/yuming.chen/.openclaw/workspace/cosmetic-deploy/cosmetic_articles.db`
+- Python 解释器: `/Library/Developer/CommandLineTools/.../Python -m uvicorn main:app --host 0.0.0.0 --port 8000`
+
+**Step 3 - FTS5 重建**:
+- 用绝对路径 `/Users/yuming.chen/.openclaw/workspace/cosmetic-api/cosmetic_articles.db` 打开 deploy db
+- `CREATE VIRTUAL TABLE articles_fts USING fts5(title, content, content='articles', content_rowid='id')`
+- `INSERT INTO articles_fts(rowid, title, content) SELECT id, COALESCE(title,''), COALESCE(content,'') FROM articles` → 2,486 行
+- 加 3 个触发器保持 INSERT/DELETE/UPDATE 同步:
+  - `articles_ai` AFTER INSERT → 同步到 FTS5
+  - `articles_ad` AFTER DELETE → FTS5 delete 标记
+  - `articles_au` AFTER UPDATE → 同步 rowid 变化
+
+**Step 4 - LLM 精排 fallback**:
+- `main.py` 的 `call_minimax_api()` 内加 fallback
+- key 缺失时自动调 `call_kimi_api('kimi-k3')`
+- 临时方案，Nick 填真 key 后无需改代码
+
+### 验证结果
+- /api/stats: `{"total_articles":2486,"total_sources":18,"date_range":{"start":"2026-06-15","end":"2026-10-17"}}`
+- /api/health: `{"status":"ok","timestamp":"2026-10-19T10:18:20.931391"}`
+- /api/search "抗衰老": 2 篇（top: "Hormesis 适度应激效应" 抗衰, score 95）
+- /api/search "化妆品": 7 篇
+- /api/search "美白": 1 篇
+- FTS5 直接 MATCH: 化妆品 53 / 抗衰老 13 / 美白 51
+- 锚点检索召回 100 → LLM 精排严格过滤到 top-N（精度优先，预期行为）
+
+### 同步更新
+- 本地 commit: "fix(rerank): MINIMAX_API_KEY 缺失时 fallback 到 Kimi K3"（1 file changed, 4 insertions, 2 deletions）
+- 仓库无 remote，暂未 push
+- 对应 deploy 仓 commit `a0b70fd`（export_data.py 治理）待 push
+
+### 已知遗留
+- plist `MINIMAX_API_KEY=***` 占位符（fallback 临时顶上，Nick 提供真 key 后填入 plist）
+- cosmetic-api 仓库无 remote，本地 commit 无云端备份
+- cosmetic-api 4 文件 modified + typechange + 10+ untracked 噪音未清理
+- 10-08 那 4 个数据量异常文件没看到单独处理记录
